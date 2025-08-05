@@ -1,49 +1,67 @@
 // index.js
-const express = require('express');
-const bodyParser = require('body-parser');
-const axios = require('axios');
+import express from 'express';
+import bodyParser from 'body-parser';
+import fetch from 'node-fetch';
 
 const app = express();
+const PORT = process.env.PORT || 8080;
+
+const API_TOKEN = 'd92decd10ac756b8d61ef9ee7446cebc365ae059';
+const SERVICE_FIELD_KEY = '5b436b45b63857305f9691910b6567351b5517bc';
+const VALID_SERVICE_IDS = [27, 28, 29, 37, 38, 39, 40, 41, 42];
+
 app.use(bodyParser.json());
 
-const PIPEDRIVE_API_TOKEN = process.env.PIPEDRIVE_API_TOKEN;
-
-app.post('/webhook/deal-created', async (req, res) => {
+app.post('/webhook', async (req, res) => {
   try {
-    const body = req.body;
-    const dealId = body.meta?.id || body.current?.id;
+    const { data, meta } = req.body;
+    const dealId = data?.id || meta?.entity_id;
 
     if (!dealId) {
-      return res.status(400).send('Missing deal ID');
+      console.warn('❌ No deal ID');
+      return res.status(400).send('❌ Deal ID missing');
     }
 
-    const dealRes = await axios.get(`https://api.pipedrive.com/v1/deals/${dealId}?api_token=${PIPEDRIVE_API_TOKEN}`);
-    const deal = dealRes.data?.data;
+    const serviceTypeId = data?.custom_fields?.[SERVICE_FIELD_KEY]?.id;
 
-    const serviceType = deal?.['5b436b45b63857305f9691910b6567351b5517bc'];
-    const validServiceIds = [27, 28, 29, 30, 31, 32];
-
-    if (!validServiceIds.includes(parseInt(serviceType))) {
-      return res.status(200).send('Service type not valid');
+    if (!VALID_SERVICE_IDS.includes(serviceTypeId)) {
+      console.log(`⚠️ Deal ${dealId} skipped due to invalid service type (${serviceTypeId})`);
+      return res.status(200).send('⚠️ Invalid service type');
     }
 
-    await axios.post(`https://api.pipedrive.com/v1/activities?api_token=${PIPEDRIVE_API_TOKEN}`, {
+    const taskPayload = {
       subject: 'Billed/Invoice',
       type: 'task',
-      deal_id: dealId,
+      deal_id: parseInt(dealId),
       done: 0
+    };
+
+    const response = await fetch(`https://api.pipedrive.com/v1/activities?api_token=${API_TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(taskPayload)
     });
 
-    return res.status(200).send('✅ Task created');
-  } catch (err) {
-    console.error(err);
-    return res.status(500).send('Server error');
+    const result = await response.json();
+
+    if (result.success) {
+      console.log(`✅ Task created for deal ${dealId}`);
+      res.status(200).send(`✅ Task created for deal ${dealId}`);
+    } else {
+      console.error('❌ Task creation failed', result);
+      res.status(500).send('❌ Failed to create task');
+    }
+
+  } catch (error) {
+    console.error('❌ Exception caught:', error);
+    res.status(500).send('❌ Internal Server Error');
   }
 });
 
 app.get('/', (req, res) => {
-  res.send('Pipedrive Webhook Server is running');
+  res.send('✅ Pipedrive Webhook Server is running');
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on port ${PORT}`);
+});
