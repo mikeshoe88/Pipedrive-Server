@@ -29,11 +29,17 @@ app.post('/', async (req, res) => {
     return res.status(200).send('Skipped: invalid or missing service type');
   }
 
+  // Calculate due date as 5 days from today
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + 5);
+  const formattedDueDate = dueDate.toISOString().split('T')[0];
+
   const taskBody = {
     subject: 'Billed/Invoice',
     type: 'task',
     deal_id: parseInt(dealId),
-    done: 0
+    done: 0,
+    due_date: formattedDueDate
   };
 
   try {
